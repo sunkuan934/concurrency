@@ -184,4 +184,4 @@ void parallel_sort(std::vector<T>& nums, int dstThreadNum)
 	}
 	merge(nums, 0, blockSize - 1, size - 1);
 }
-#endif
+#endif //!__MY_ALGORITHM_H__
