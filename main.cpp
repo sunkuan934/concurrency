@@ -1,13 +1,13 @@
 #include <iostream>
 #include <thread>
 #include "my_algorithm.hpp"
-#include "thread_saft_stack.h"
-#include "threadsafe_queue.h"
+#include "threadsafe_stack.hpp"
+#include "threadsafe_queue.hpp"
 #include "simple_thread_pool.hpp"
 #include "threadsafe_map.hpp"
 #include "logger.h"
 
-using threadsaft_container::threadsafe_queue;
+using threadsafe_container::threadsafe_queue;
 using parallel_algorithm::parallel_sort;
 
 const int THREAD_POOL_SIZE = 4;
