@@ -14,7 +14,7 @@
 THREADSAFT_CONTAINER_BEGIN
 const static unsigned int _gPrimes[] =
 {
-    53, 97, 193, 389, 769,1543,
+    53,   97,   193,   389,   769,   1543,
     3079, 6151, 12289, 24593, 49157, 98317
 };
 
@@ -24,31 +24,43 @@ class threadsafe_map
 private:
     class BucketType
     {
-    private:
+    public:
         using BucketValue = std::pair<Key, Value>;
         using BucketData = std::list<BucketValue>;
-        using BucketInterator = std::list<BucketValue>::iterator;
+        using BucketInterator = BucketData::iterator;
+        using BucketConstInterator = BucketData::const_iterator;
         BucketData _data;
         mutable boost::shared_mutex _rwm;
 
-    private:
-        BucketInterator findKeyEntry(const Key& key) const
+    public:
+
+        BucketInterator findKeyEntry(Key const& key)
         {
-            return std::find_if(_data.begin(), _data.end(), [](const BucketValue& elem) {return elem.first == key; });
+            return std::find_if(_data.begin(), _data.end(), [&](BucketValue const& elem) {return elem.first == key; });
+        }
+
+        BucketConstInterator findKeyEntry(Key const& key) const
+        {
+            return std::find_if(_data.begin(), _data.end(), [&](BucketValue const& elem) {return elem.first == key; });
         }
 
     public:
-        Value getValue(const Key& key, const Key& defaultValue) const
+        BucketData& getBucketData()
+        {
+            return _data;
+        }
+
+        Value getValue(Key const& key, const Value& defaultValue) const
         {
             boost::shared_lock<boost::shared_mutex> readLock(_rwm);
-            const BucketInterator entryPosi = findKeyEntry(key);
+            BucketConstInterator entryPosi = findKeyEntry(key);
             return entryPosi == _data.end() ? defaultValue : entryPosi->second;
         }
 
         void addPair(const Key& key, const Value& value)
         {
             std::unique_lock<boost::shared_mutex> writeLock(_rwm);
-            const BucketInterator entryPosi = findKeyEntry(key);
+            BucketInterator entryPosi = findKeyEntry(key);
             if (entryPosi == _data.end())
             {
                 _data.emplace_back(BucketValue{ key, value });
@@ -62,7 +74,7 @@ private:
         void removePair(const Key& key)
         {
             std::unique_lock<boost::shared_mutex> writeLock(_rwm);
-            const BucketInterator entryPosi = findKeyEntry(key);
+            BucketInterator entryPosi = findKeyEntry(key);
             if (entryPosi != _data.end())
             {
                 _data.erase(entryPosi);
@@ -73,6 +85,8 @@ private:
     std::vector<std::unique_ptr<BucketType>> _buckets;
     Hash _hashFunc;
     std::atomic<int> _realSize = 0;
+    std::mutex _bucketsLock;
+
     unsigned int findNextPrime(int size)
     {
         int len = sizeof(_gPrimes) / sizeof(_gPrimes[0]);
@@ -107,6 +121,50 @@ public:
 
     threadsafe_map(const threadsafe_map& rhs) = delete;
     threadsafe_map& operator=(const threadsafe_map& rhs) = delete;
+
+    Value getValue(const Key& key, const Value& defaultValue = Value()) const
+    {
+        return getBucket(key).getValue(key, defaultValue);
+    }
+
+    void addPair(const Key& key, const Value& value)
+    {
+        if (_realSize == _buckets.size())
+        {
+            std::lock_guard<std::mutex> lock(_bucketsLock);
+            std::unordered_map<Key, Value> oriMap;
+            for (int i = 0; i < _buckets.size(); ++i)
+            {
+                for (const auto& elem : _buckets[i]->getBucketData())
+                {
+                    oriMap.insert(elem);
+                }
+            }
+            oriMap[key] = value;
+            int newBucketsSize = findNextPrime(_realSize.load());
+            _buckets.clear();
+            _buckets.resize(newBucketsSize);
+            for (int i = 0; i < newBucketsSize; ++i)
+            {
+                _buckets[i].reset(new BucketType);
+            }
+            for (const auto& elem : oriMap)
+            {
+                const size_t bucketIndex = _hashFunc(elem.first) % _buckets.size();
+                (*_buckets[bucketIndex])._data.push_back(BucketType::BucketValue(elem.first, elem.second));
+            }
+        }
+        else
+        {
+            getBucket(key).addPair(key, value);
+        }
+        ++_realSize;
+    }
+
+    void removePair(const Key& key)
+    {
+        getBucket(key).removePair(key);
+    }
 };
 THREADSAFT_CONTAINER_END
 #endif //!__THREADSAFE_MAP_H__
